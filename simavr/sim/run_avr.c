@@ -30,12 +30,13 @@
 #include "sim_gdb.h"
 #include "sim_hex.h"
 
+#include "sim_core_decl.h"
 
+#if CONFIG_SIMAVR_JIT
 #include "avr_flash.h" // for AVR_IOCTL_FLASH_SPM
 #include "avr_watchdog.h" // for AVR_IOCTL_WATCHDOG_RESET
 #include <libtcc.h>
-
-#include "sim_core_decl.h"
+#endif
 
 void display_usage(char * app)
 {
@@ -241,11 +242,18 @@ int main(int argc, char *argv[])
 		tcc_define_symbol(tcc, "AVR_IOCTL_FLASH_SPM", sym);
 
 		tcc_set_output_type(tcc, TCC_OUTPUT_MEMORY);
+#ifdef TCC_FILETYPE_C
+		tcc_add_file(tcc, "jit_wrapper.c", TCC_FILETYPE_C);
+#else
 		tcc_add_file(tcc, "jit_wrapper.c");
-
-		tcc_enable_debug(tcc);
+#endif
+//		tcc_enable_debug(tcc); // API is gone?
 		void *firmware = NULL;
+#ifdef TCC_RELOCATE_AUTO
+		if (tcc_relocate(tcc, TCC_RELOCATE_AUTO) == 0)
+#else
 		if (tcc_relocate(tcc) == 0)
+#endif
 			firmware = tcc_get_symbol(tcc, "firmware");
 
 		if (firmware) {
