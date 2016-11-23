@@ -30,6 +30,11 @@
 #include "sim_gdb.h"
 #include "sim_hex.h"
 
+
+#include "avr_flash.h" // for AVR_IOCTL_FLASH_SPM
+#include "avr_watchdog.h" // for AVR_IOCTL_WATCHDOG_RESET
+#include <libtcc.h>
+
 #include "sim_core_decl.h"
 
 void display_usage(char * app)
@@ -70,6 +75,14 @@ sig_int(
 	exit(0);
 }
 
+typedef struct jit_avr_t {
+	void * avr;
+	uint8_t * data;
+	uint8_t * flash;
+} jit_avr_t, *jit_avr_p;
+
+jit_avr_t g_avr;
+
 int main(int argc, char *argv[])
 {
 	elf_firmware_t f = {{0}};
@@ -81,6 +94,7 @@ int main(int argc, char *argv[])
 	uint32_t loadBase = AVR_SEGMENT_OFFSET_FLASH;
 	int trace_vectors[8] = {0};
 	int trace_vectors_count = 0;
+	int translate = 0;
 
 	if (argc == 1)
 		display_usage(basename(argv[0]));
@@ -90,6 +104,11 @@ int main(int argc, char *argv[])
 			list_cores();
 		} else if (!strcmp(argv[pi], "-h") || !strcmp(argv[pi], "--help")) {
 			display_usage(basename(argv[0]));
+		} else if (!strcmp(argv[pi], "-j") || !strcmp(argv[pi], "--jit")) {
+			translate++;
+#if CONFIG_SIMAVR_JIT == 0
+			fprintf(stderr, "%s: - JIT was not compiled in this version.\n", argv[0]);
+#endif
 		} else if (!strcmp(argv[pi], "-m") || !strcmp(argv[pi], "-mcu")) {
 			if (pi < argc-1)
 				strcpy(name, argv[++pi]);
@@ -150,6 +169,9 @@ int main(int argc, char *argv[])
 					exit(1);
 				}
 			}
+		} else {
+			fprintf(stderr, "%s invalid option '%s'\n", argv[0], argv[pi]);
+			exit(1);
 		}
 	}
 
@@ -186,7 +208,56 @@ int main(int argc, char *argv[])
 
 	signal(SIGINT, sig_int);
 	signal(SIGTERM, sig_int);
+#if CONFIG_SIMAVR_JIT
+	if (translate) {
+		avr_flashaddr_t avr_translate_firmware(avr_t * avr);
+		avr_translate_firmware(avr);
 
+		static const jit_avr_t z_avr = {0};
+		g_avr = z_avr;
+		g_avr.avr = avr;
+		g_avr.data = avr->data;
+		g_avr.flash = avr->flash;
+
+		TCCState * tcc = tcc_new();
+
+		void error(void *i, const char *msg) {
+			fprintf(stderr, "TCC: %s\n", msg);
+		}
+		tcc_set_error_func(tcc, NULL, error);
+
+		char sym[32];
+		sprintf(sym, "%d", avr->address_size);
+		tcc_define_symbol(tcc, "avr_address_size", sym);
+		sprintf(sym, "0x%x", avr->flashend);
+		tcc_define_symbol(tcc, "avr_flashend", sym);
+		sprintf(sym, "0x%x", avr->eind);
+		tcc_define_symbol(tcc, "avr_eind", sym);
+		sprintf(sym, "0x%x", avr->rampz);
+		tcc_define_symbol(tcc, "avr_rampz", sym);
+		sprintf(sym, "%08x", AVR_IOCTL_WATCHDOG_RESET);
+		tcc_define_symbol(tcc, "AVR_IOCTL_WATCHDOG_RESET", sym);
+		sprintf(sym, "%08x", AVR_IOCTL_FLASH_SPM);
+		tcc_define_symbol(tcc, "AVR_IOCTL_FLASH_SPM", sym);
+
+		tcc_set_output_type(tcc, TCC_OUTPUT_MEMORY);
+		tcc_add_file(tcc, "jit_wrapper.c");
+
+		tcc_enable_debug(tcc);
+		void *firmware = NULL;
+		if (tcc_relocate(tcc) == 0)
+			firmware = tcc_get_symbol(tcc, "firmware");
+
+		if (firmware) {
+			avr->jit.context = tcc;
+			avr->jit.jit_avr = &g_avr;
+			avr->jit.entry = firmware;
+			avr->run = avr_callback_run_jit;
+		} else {
+			exit(0);
+		}
+	}
+#endif
 	for (;;) {
 		int state = avr_run(avr);
 		if (state == cpu_Done || state == cpu_Crashed)
