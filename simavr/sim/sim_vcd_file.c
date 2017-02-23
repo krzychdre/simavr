@@ -51,6 +51,22 @@ avr_vcd_init(
 	return 0;
 }
 
+int
+avr_vcd_init_input(
+		struct avr_t * avr,
+		const char * filename, 	// filename to read
+		avr_vcd_t * vcd )		// vcd struct to initialize
+{
+	memset(vcd, 0, sizeof(avr_vcd_t));
+	vcd->avr = avr;
+	vcd->filename = strdup(filename);
+
+	vcd->input = fopen(vcd->filename, "r");
+	if (!vcd->input) {
+		perror(filename);
+		return -1;
+	}
+
 	return 0;
 }
 

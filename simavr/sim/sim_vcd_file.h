@@ -61,6 +61,7 @@ typedef struct avr_vcd_t {
 
 	char *			filename;		// .vcd filename
 	FILE * 			output;
+	FILE * 			input;
 
 	int 			signal_count;
 	avr_vcd_signal_t	signal[AVR_VCD_MAX_SIGNALS];
@@ -80,6 +81,11 @@ avr_vcd_init(
 		const char * filename, 	// filename to write
 		avr_vcd_t * vcd,		// vcd struct to initialize
 		uint32_t	period );	// file flushing period is in usec
+int
+avr_vcd_init_input(
+		struct avr_t * avr,
+		const char * filename, 	// filename to read
+		avr_vcd_t * vcd );		// vcd struct to initialize
 void
 avr_vcd_close(
 		avr_vcd_t * vcd );
