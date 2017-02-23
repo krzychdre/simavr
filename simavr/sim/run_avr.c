@@ -196,7 +196,8 @@ main(
 				avr->interrupts.vector[vi]->trace = 1;
 	}
 	if (vcd_input) {
-		if (avr_vcd_init_input(avr, vcd_input, avr->vcd)) {
+		static avr_vcd_t input;
+		if (avr_vcd_init_input(avr, vcd_input, &input)) {
 			fprintf(stderr, "%s: Warning: VCD input file %s failed\n", argv[0], vcd_input);
 		}
 	}

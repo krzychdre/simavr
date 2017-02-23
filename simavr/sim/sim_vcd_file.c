@@ -25,7 +25,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include<inttypes.h>
+#include <inttypes.h>
+#include <ctype.h>
 #include "sim_vcd_file.h"
 #include "sim_avr.h"
 #include "sim_time.h"
@@ -50,7 +51,32 @@ avr_vcd_init(
 
 	return 0;
 }
+#if 0
+static const char *
+strrstr(
+		const char *haystack,
+		const char *needle )
+{
+	int nl = strlen(needle);
+	int hl = strlen(haystack);
 
+	if (hl < nl)
+		return NULL;
+	if (hl == nl)
+		return strcmp(haystack, needle) ? NULL : haystack;
+
+	const char *d = haystack + hl - nl;
+	while (d >= haystack) {
+		for (int i = 0; i <= nl; i++)
+			if (needle[i] == 0)
+				return d;	// found it!
+			else if (needle[i] != d[i])	// no match
+				break;
+		d--;
+	}
+	return NULL;
+}
+#endif
 int
 avr_vcd_init_input(
 		struct avr_t * avr,
@@ -65,6 +91,56 @@ avr_vcd_init_input(
 	if (!vcd->input) {
 		perror(filename);
 		return -1;
+	}
+	char line[1024];
+	while (fgets(line, sizeof(line), vcd->input)) {
+		if (!line[0])	// technically can't happen, but make sure next line works
+			continue;
+		/* strip end of lines and trailing spaces */
+		char *d = line + strlen(line);
+		while ((d - line) > 0 && *(--d) <= ' ')
+			*d = 0;
+		/* stop spaces+tabs */
+		char *s = line;
+		while (*s && *s <= ' ')
+			s++;
+		// ignore multiline stuff
+		if (s[0] != '$')
+			continue;
+
+		const char * end = strlen(s) >= 4 ?
+								!strcmp(s + strlen(s) - 4, "$end") ?
+									s + strlen(s) - 4 : NULL :
+								NULL;
+		char * keyword = strsep(&s, " ");
+
+		if (keyword == end)
+			keyword = NULL;
+		if (!keyword)
+			continue;
+		if (s == end)
+			s = NULL;
+		// strip payload
+		if (end && s && (end > s)) {
+			s[end - s] = 0;
+			while (strlen(s) && s[strlen(s)-1] == ' ')
+				s[strlen(s)-1] = 0;
+		}
+		printf("keyword '%s' s '%s' end '%s'\n", keyword, s, end);
+		if (!strcmp(keyword, "$enddefinitions"))
+			break;
+		if (!strcmp(keyword, "$timescale")) {
+			double cnt = 0;
+			char *si = s;
+			while (si && *si && isdigit(*si))
+				cnt = (cnt * 10) + (*si++ - '0');
+			while (*si == ' ')
+				si++;
+			if (!strcmp(si, "ns"))
+				cnt /= 1000;
+		} else if (!strcmp(keyword, "$var")) {
+
+		}
 	}
 
 	return 0;
