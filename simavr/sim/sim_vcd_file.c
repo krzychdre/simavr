@@ -30,29 +30,57 @@
 #include "sim_avr.h"
 #include "sim_time.h"
 
-void _avr_vcd_notify(struct avr_irq_t * irq, uint32_t value, void * param);
+static void
+_avr_vcd_notify(
+		struct avr_irq_t * irq,
+		uint32_t value,
+		void * param);
 
-int avr_vcd_init(struct avr_t * avr, const char * filename, avr_vcd_t * vcd, uint32_t period)
+int
+avr_vcd_init(
+		struct avr_t * avr,
+		const char * filename,
+		avr_vcd_t * vcd,
+		uint32_t period)
 {
 	memset(vcd, 0, sizeof(avr_vcd_t));
 	vcd->avr = avr;
-	strncpy(vcd->filename, filename, sizeof(vcd->filename));
+	vcd->filename = strdup(filename);
 	vcd->period = avr_usec_to_cycles(vcd->avr, period);
-
-	// No longer initializes the IRQs here, they can be initialized on the
-	// fly when traces are added
 
 	return 0;
 }
 
-void avr_vcd_close(avr_vcd_t * vcd)
-{
-	avr_vcd_stop(vcd);
+	return 0;
 }
 
-void _avr_vcd_notify(struct avr_irq_t * irq, uint32_t value, void * param)
+void
+avr_vcd_close(
+		avr_vcd_t * vcd)
+{
+	avr_vcd_stop(vcd);
+
+	/* dispose of any link and hooks */
+	for (int i = 0; i < vcd->signal_count; i++) {
+		avr_vcd_signal_t * s = &vcd->signal[i];
+
+		avr_free_irq(&s->irq, 1);
+	}
+
+	if (vcd->filename) {
+		free(vcd->filename);
+		vcd->filename = NULL;
+	}
+}
+
+static void
+_avr_vcd_notify(
+		struct avr_irq_t * irq,
+		uint32_t value,
+		void * param)
 {
 	avr_vcd_t * vcd = (avr_vcd_t *)param;
+
 	if (!vcd->output)
 		return;
 
@@ -84,7 +112,10 @@ void _avr_vcd_notify(struct avr_irq_t * irq, uint32_t value, void * param)
 }
 
 
-static char * _avr_vcd_get_float_signal_text(avr_vcd_signal_t * s, char * out)
+static char *
+_avr_vcd_get_float_signal_text(
+		avr_vcd_signal_t * s,
+		char * out)
 {
 	char * dst = out;
 
@@ -100,7 +131,11 @@ static char * _avr_vcd_get_float_signal_text(avr_vcd_signal_t * s, char * out)
 	return out;
 }
 
-static char * _avr_vcd_get_signal_text(avr_vcd_signal_t * s, char * out, uint32_t value)
+static char *
+_avr_vcd_get_signal_text(
+		avr_vcd_signal_t * s,
+		char * out,
+		uint32_t value)
 {
 	char * dst = out;
 
@@ -116,7 +151,9 @@ static char * _avr_vcd_get_signal_text(avr_vcd_signal_t * s, char * out, uint32_
 	return out;
 }
 
-static void avr_vcd_flush_log(avr_vcd_t * vcd)
+static void
+avr_vcd_flush_log(
+		avr_vcd_t * vcd)
 {
 #if AVR_VCD_MAX_SIGNALS > 32
 	uint64_t seen = 0;
@@ -130,7 +167,6 @@ static void avr_vcd_flush_log(avr_vcd_t * vcd)
 		return;
 //	printf("avr_vcd_flush_log %d\n", vcd->logindex);
 
-
 	for (uint32_t li = 0; li < vcd->logindex; li++) {
 		avr_vcd_log_t *l = &vcd->log[li];
 		uint64_t base = avr_cycles_to_nsec(vcd->avr, l->when - vcd->start);	// 1ns base
@@ -139,7 +175,7 @@ static void avr_vcd_flush_log(avr_vcd_t * vcd)
 		// to make sure the new value is offset by one nsec, to make sure we get
 		// at least a small pulse on the waveform
 		// This is a bit of a fudge, but it is the only way to represent very
-		// short"pulses" that are still visible on the waveform.
+		// short "pulses" that are still visible on the waveform.
 		if (base == oldbase && seen & (1 << l->signal->irq.irq))
 			base++;	// this forces a new timestamp
 
@@ -154,17 +190,23 @@ static void avr_vcd_flush_log(avr_vcd_t * vcd)
 	vcd->logindex = 0;
 }
 
-static avr_cycle_count_t _avr_vcd_timer(struct avr_t * avr, avr_cycle_count_t when, void * param)
+static avr_cycle_count_t
+_avr_vcd_timer(
+		struct avr_t * avr,
+		avr_cycle_count_t when,
+		void * param)
 {
 	avr_vcd_t * vcd = param;
 	avr_vcd_flush_log(vcd);
 	return when + vcd->period;
 }
 
-int avr_vcd_add_signal(avr_vcd_t * vcd,
-	avr_irq_t * signal_irq,
-	int signal_bit_size,
-	const char * name )
+int
+avr_vcd_add_signal(
+		avr_vcd_t * vcd,
+		avr_irq_t * signal_irq,
+		int signal_bit_size,
+		const char * name )
 {
 	if (vcd->signal_count == AVR_VCD_MAX_SIGNALS)
 		return -1;
@@ -191,7 +233,9 @@ int avr_vcd_add_signal(avr_vcd_t * vcd,
 }
 
 
-int avr_vcd_start(avr_vcd_t * vcd)
+int
+avr_vcd_start(
+		avr_vcd_t * vcd)
 {
 	if (vcd->output)
 		avr_vcd_stop(vcd);
@@ -225,7 +269,9 @@ int avr_vcd_start(avr_vcd_t * vcd)
 	return 0;
 }
 
-int avr_vcd_stop(avr_vcd_t * vcd)
+int
+avr_vcd_stop(
+		avr_vcd_t * vcd)
 {
 	avr_cycle_timer_cancel(vcd->avr, _avr_vcd_timer, vcd);
 

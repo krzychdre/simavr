@@ -34,7 +34,7 @@ extern "C" {
 
 /*
  * Value Change dump module for simavr.
- * 
+ *
  * This structure registers IRQ change hooks to various "source" IRQs
  * and dumps their values (if changed) at certain intervals into the VCD file
  */
@@ -42,31 +42,31 @@ extern "C" {
 #define AVR_VCD_MAX_SIGNALS 64
 
 typedef struct avr_vcd_signal_t {
-	avr_irq_t 	irq;		// receiving IRQ
-	char	alias;			// vcd one character alias
-	int		size;			// in bits
-	char	name[32];		// full human name	
+	avr_irq_t 		irq;		// receiving IRQ
+	char			alias;			// vcd one character alias
+	uint8_t			size;			// in bits
+	char			name[32];		// full human name
 } avr_vcd_signal_t;
 
 typedef struct avr_vcd_log_t {
-	uint64_t 	when;
+	uint64_t 		when;
 	avr_vcd_signal_t * signal;
-	uint32_t value;
+	uint32_t 		value;
 } avr_vcd_log_t, *avr_vcd_log_p;
 
 #define AVR_VCD_LOG_CHUNK_SIZE	(4096 / sizeof(avr_vcd_signal_t))
 
 typedef struct avr_vcd_t {
 	struct avr_t *	avr;	// AVR we are attaching timers to..
-	
-	char filename[74];		// output filename
-	FILE * output;
 
-	int signal_count;
+	char *			filename;		// .vcd filename
+	FILE * 			output;
+
+	int 			signal_count;
 	avr_vcd_signal_t	signal[AVR_VCD_MAX_SIGNALS];
 
-	uint64_t period;
-	uint64_t start;
+	uint64_t 		period;
+	uint64_t 		start;
 
 	size_t			logsize;
 	uint32_t		logindex;
@@ -74,22 +74,32 @@ typedef struct avr_vcd_t {
 } avr_vcd_t;
 
 // initializes a new VCD trace file, and returns zero if all is well
-int avr_vcd_init(struct avr_t * avr, 
-	const char * filename, 	// filename to write
-	avr_vcd_t * vcd,		// vcd struct to initialize
-	uint32_t	period );	// file flushing period is in usec
-void avr_vcd_close(avr_vcd_t * vcd);
+int
+avr_vcd_init(
+		struct avr_t * avr,
+		const char * filename, 	// filename to write
+		avr_vcd_t * vcd,		// vcd struct to initialize
+		uint32_t	period );	// file flushing period is in usec
+void
+avr_vcd_close(
+		avr_vcd_t * vcd );
 
 // Add a trace signal to the vcd file. Must be called before avr_vcd_start()
-int avr_vcd_add_signal(avr_vcd_t * vcd, 
-	avr_irq_t * signal_irq,
-	int signal_bit_size,
-	const char * name );
+int
+avr_vcd_add_signal(
+		avr_vcd_t * vcd,
+		avr_irq_t * signal_irq,
+		int signal_bit_size,
+		const char * name );
 
 // Starts recording the signal value into the file
-int avr_vcd_start(avr_vcd_t * vcd);
+int
+avr_vcd_start(
+		avr_vcd_t * vcd);
 // stops recording signal values into the file
-int avr_vcd_stop(avr_vcd_t * vcd);
+int
+avr_vcd_stop(
+		avr_vcd_t * vcd);
 
 #ifdef __cplusplus
 };
