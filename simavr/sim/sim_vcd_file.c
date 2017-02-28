@@ -77,6 +77,54 @@ strrstr(
 	return NULL;
 }
 #endif
+
+typedef struct argv_t {
+	uint32_t size, argc;
+	char * line;
+	char * argv[];
+} argv_t, *argv_p;
+
+argv_p
+argv_realloc(
+	argv_p	argv,
+	uint32_t size )
+{
+	argv = realloc(argv, sizeof(argv_t) + (size * sizeof(argv->argv[0])));
+	argv->size = size;
+	return argv;
+}
+
+argv_p
+argv_parse(
+	argv_p	argv,
+	char * line )
+{
+	if (!argv)
+		argv = argv_realloc(argv, 8);
+	argv->argc = 0;
+
+	/* strip end of lines and trailing spaces */
+	char *d = line + strlen(line);
+	while ((d - line) > 0 && *(--d) <= ' ')
+		*d = 0;
+	/* stop spaces + tabs */
+	char *s = line;
+	while (*s && *s <= ' ')
+		s++;
+	argv->line = s;
+	char * a = NULL;
+	do {
+		if (argv->argc == argv->size)
+			argv = argv_realloc(argv, argv->size + 8);
+		if ((a = strsep(&s, " \t")) != NULL)
+			argv->argv[argv->argc++] = a;
+	} while (a);
+	argv->argv[argv->argc] = NULL;
+	return argv;
+}
+
+
+
 int
 avr_vcd_init_input(
 		struct avr_t * avr,
@@ -93,56 +141,50 @@ avr_vcd_init_input(
 		return -1;
 	}
 	char line[1024];
+	argv_p v = NULL;
+
 	while (fgets(line, sizeof(line), vcd->input)) {
 		if (!line[0])	// technically can't happen, but make sure next line works
 			continue;
-		/* strip end of lines and trailing spaces */
-		char *d = line + strlen(line);
-		while ((d - line) > 0 && *(--d) <= ' ')
-			*d = 0;
-		/* stop spaces+tabs */
-		char *s = line;
-		while (*s && *s <= ' ')
-			s++;
+		v = argv_parse(v, line);
 		// ignore multiline stuff
-		if (s[0] != '$')
+		if (v->line[0] != '$')
 			continue;
 
-		const char * end = strlen(s) >= 4 ?
-								!strcmp(s + strlen(s) - 4, "$end") ?
-									s + strlen(s) - 4 : NULL :
-								NULL;
-		char * keyword = strsep(&s, " ");
+		const char * end = !strcmp(v->argv[v->argc - 1], "$end") ?
+								v->argv[v->argc - 1] : NULL;
+		const char *keyword = v->argv[0];
 
 		if (keyword == end)
 			keyword = NULL;
 		if (!keyword)
 			continue;
-		if (s == end)
-			s = NULL;
-		// strip payload
-		if (end && s && (end > s)) {
-			s[end - s] = 0;
-			while (strlen(s) && s[strlen(s)-1] == ' ')
-				s[strlen(s)-1] = 0;
-		}
-		printf("keyword '%s' s '%s' end '%s'\n", keyword, s, end);
+
+		printf("keyword '%s' end '%s'\n", keyword, end);
 		if (!strcmp(keyword, "$enddefinitions"))
 			break;
 		if (!strcmp(keyword, "$timescale")) {
 			double cnt = 0;
-			char *si = s;
+			char *si = v->argv[1];
 			while (si && *si && isdigit(*si))
 				cnt = (cnt * 10) + (*si++ - '0');
 			while (*si == ' ')
 				si++;
 			if (!strcmp(si, "ns"))
 				cnt /= 1000;
+			printf("cnt %d; unit %s\n", (int)cnt, si);
 		} else if (!strcmp(keyword, "$var")) {
+			const char *name = v->argv[4];
 
+			vcd->signal[vcd->signal_count].alias = v->argv[3][0];
+			vcd->signal[vcd->signal_count].size = atoi(v->argv[2]);
+			strncpy(vcd->signal[vcd->signal_count].name, name,
+						sizeof(vcd->signal[0].name));
+
+			vcd->signal_count++;
 		}
 	}
-
+	free(v);
 	return 0;
 }
 
