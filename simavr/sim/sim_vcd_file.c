@@ -78,6 +78,10 @@ strrstr(
 }
 #endif
 
+/*
+ * TODO: move these avrg_* functions to a different place?
+ * Could be useful for other bits of code.
+ */
 typedef struct argv_t {
 	uint32_t size, argc;
 	char * line;
@@ -89,7 +93,8 @@ argv_realloc(
 	argv_p	argv,
 	uint32_t size )
 {
-	argv = realloc(argv, sizeof(argv_t) + (size * sizeof(argv->argv[0])));
+	argv = realloc(argv,
+				sizeof(argv_t) + (size * sizeof(argv->argv[0])));
 	argv->size = size;
 	return argv;
 }
@@ -148,6 +153,11 @@ avr_vcd_init_input(
 			continue;
 		v = argv_parse(v, line);
 		// ignore multiline stuff
+		if (v->line[0] == '#') {
+			// we are done, got our first timestamp
+			break;
+		}
+		// Should not arrive here, really but...
 		if (v->line[0] != '$')
 			continue;
 
@@ -161,8 +171,7 @@ avr_vcd_init_input(
 			continue;
 
 		printf("keyword '%s' end '%s'\n", keyword, end);
-		if (!strcmp(keyword, "$enddefinitions"))
-			break;
+
 		if (!strcmp(keyword, "$timescale")) {
 			double cnt = 0;
 			char *si = v->argv[1];
@@ -170,9 +179,11 @@ avr_vcd_init_input(
 				cnt = (cnt * 10) + (*si++ - '0');
 			while (*si == ' ')
 				si++;
+			if (!*si)
+				si = v->argv[2];
 			if (!strcmp(si, "ns"))
 				cnt /= 1000;
-			printf("cnt %d; unit %s\n", (int)cnt, si);
+			printf("cnt %dus; unit %s\n", (int)cnt, si);
 		} else if (!strcmp(keyword, "$var")) {
 			const char *name = v->argv[4];
 
@@ -183,6 +194,12 @@ avr_vcd_init_input(
 
 			vcd->signal_count++;
 		}
+	}
+	for (int i = 0; i < vcd->signal_count; i++) {
+		printf("  %2d '%c' %s : size %d\n", i,
+				vcd->signal[i].alias, vcd->signal[i].name,
+				vcd->signal[i].size);
+
 	}
 	free(v);
 	return 0;
@@ -219,20 +236,24 @@ _avr_vcd_notify(
 		return;
 
 	/*
-	 * buffer starts empty, the first trace will resize it to AVR_VCD_LOG_CHUNK_SIZE,
-	 * further growth will resize it accordingly.
+	 * buffer starts empty, the first trace will resize it to
+	 * AVR_VCD_LOG_CHUNK_SIZE, further growth will resize it accordingly.
 	 */
 	if (vcd->logindex >= vcd->logsize) {
 		vcd->logsize += AVR_VCD_LOG_CHUNK_SIZE;
-		vcd->log = (avr_vcd_log_p)realloc(vcd->log, vcd->logsize * sizeof(vcd->log[0]));
-		AVR_LOG(vcd->avr, LOG_TRACE, "%s trace buffer resized to %d\n",
+		vcd->log = (avr_vcd_log_p)realloc(vcd->log,
+						vcd->logsize * sizeof(vcd->log[0]));
+		AVR_LOG(vcd->avr, LOG_TRACE,
+				"%s trace buffer resized to %d\n",
 				__func__, (int)vcd->logsize);
 		if ((vcd->logsize / AVR_VCD_LOG_CHUNK_SIZE) == 8) {
-			AVR_LOG(vcd->avr, LOG_WARNING, "%s log size runnaway (%d) flush problem?\n",
+			AVR_LOG(vcd->avr, LOG_WARNING,
+					"%s log size runnaway (%d) flush problem?\n",
 					__func__, (int)vcd->logsize);
 		}
 		if (!vcd->log) {
-			AVR_LOG(vcd->avr, LOG_ERROR, "%s log resizing, out of memory (%d)!\n",
+			AVR_LOG(vcd->avr, LOG_ERROR,
+					"%s log resizing, out of memory (%d)!\n",
 					__func__, (int)vcd->logsize);
 			vcd->logsize = 0;
 			return;
@@ -299,17 +320,19 @@ avr_vcd_flush_log(
 
 	if (!vcd->logindex || !vcd->output)
 		return;
-//	printf("avr_vcd_flush_log %d\n", vcd->logindex);
 
 	for (uint32_t li = 0; li < vcd->logindex; li++) {
 		avr_vcd_log_t *l = &vcd->log[li];
 		uint64_t base = avr_cycles_to_nsec(vcd->avr, l->when - vcd->start);	// 1ns base
 
-		// if that trace was seen in this nsec already, we fudge the base time
-		// to make sure the new value is offset by one nsec, to make sure we get
-		// at least a small pulse on the waveform
-		// This is a bit of a fudge, but it is the only way to represent very
-		// short "pulses" that are still visible on the waveform.
+		/*
+		 * if that trace was seen in this nsec already, we fudge the
+		 * base time to make sure the new value is offset by one nsec,
+		 * to make sure we get at least a small pulse on the waveform.
+		 *
+		 * This is a bit of a fudge, but it is the only way to represent
+		 * very short "pulses" that are still visible on the waveform.
+		 */
 		if (base == oldbase && seen & (1 << l->signal->irq.irq))
 			base++;	// this forces a new timestamp
 
@@ -318,8 +341,10 @@ avr_vcd_flush_log(
 			fprintf(vcd->output, "#%" PRIu64  "\n", base);
 			oldbase = base;
 		}
-		seen |= (1 << l->signal->irq.irq);	// mark this trace as seen for this timestamp
-		fprintf(vcd->output, "%s\n", _avr_vcd_get_signal_text(l->signal, out, l->value));
+		// mark this trace as seen for this timestamp
+		seen |= (1 << l->signal->irq.irq);
+		fprintf(vcd->output, "%s\n",
+				_avr_vcd_get_signal_text(l->signal, out, l->value));
 	}
 	vcd->logindex = 0;
 }
@@ -371,6 +396,13 @@ int
 avr_vcd_start(
 		avr_vcd_t * vcd)
 {
+	if (vcd->input) {
+		/*
+		 * nothing to do here, the first cycle timer will take care
+		 * if it.
+		 */
+		return 0;
+	}
 	if (vcd->output)
 		avr_vcd_stop(vcd);
 	vcd->output = fopen(vcd->filename, "w");
@@ -394,7 +426,8 @@ avr_vcd_start(
 	for (int i = 0; i < vcd->signal_count; i++) {
 		avr_vcd_signal_t * s = &vcd->signal[i];
 		char out[48];
-		fprintf(vcd->output, "%s\n", _avr_vcd_get_float_signal_text(s, out));
+		fprintf(vcd->output, "%s\n",
+				_avr_vcd_get_float_signal_text(s, out));
 	}
 	fprintf(vcd->output, "$end\n");
 	vcd->logindex = 0;

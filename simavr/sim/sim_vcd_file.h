@@ -42,10 +42,14 @@ extern "C" {
 #define AVR_VCD_MAX_SIGNALS 64
 
 typedef struct avr_vcd_signal_t {
-	avr_irq_t 		irq;		// receiving IRQ
-	char			alias;			// vcd one character alias
+	/*
+	 * For VCD output this is the IRQ we receive new values from.
+	 * For VCD input, this is the IRQ we broadcast the values to
+	 */
+	avr_irq_t 		irq;
+	char				alias;			// vcd one character alias
 	uint8_t			size;			// in bits
-	char			name[32];		// full human name
+	char				name[32];		// full human name
 } avr_vcd_signal_t;
 
 typedef struct avr_vcd_log_t {
@@ -60,17 +64,18 @@ typedef struct avr_vcd_t {
 	struct avr_t *	avr;	// AVR we are attaching timers to..
 
 	char *			filename;		// .vcd filename
+	/* can be input OR output, not both */
 	FILE * 			output;
 	FILE * 			input;
 
-	int 			signal_count;
+	int 				signal_count;
 	avr_vcd_signal_t	signal[AVR_VCD_MAX_SIGNALS];
 
 	uint64_t 		period;
 	uint64_t 		start;
 
 	size_t			logsize;
-	uint32_t		logindex;
+	uint32_t			logindex;
 	avr_vcd_log_p	log;
 } avr_vcd_t;
 
